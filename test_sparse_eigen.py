@@ -76,7 +76,7 @@ for i in range(100):
     index2, value2 = ts.transpose(index, new_value, m, n)
     index, new_value = spadd(index, new_value, index2, value2, m,n)
     new_value=new_value/2
-    #make it hermitic again
+    #make it hermitian again
     index2, value2 = ts.transpose(index, new_value, m, n)
     print('checking hermiticity', torch.sum(spadd(index, new_value, index2, -value2, m,n)[1]))
     
