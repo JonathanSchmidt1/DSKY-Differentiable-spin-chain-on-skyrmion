@@ -1,10 +1,14 @@
 import torch, xitorch, numpy as np, torch_sparse as ts
 import scipy
 mat = np.load('matrix.npy', allow_pickle=True)[()]
+eigval_test = np.load('evals.npy', allow_pickle=True)
+#eigvec_test = np.load('evecs.npy', allow_pickle=True)[()]
 import torch
 from torch_sparse import coalesce
+from time import time
+from xitorch import linalg
 
-
+torch.set_printoptions(10)
 def spadd(indexA, valueA, indexB, valueB, m, n):
     """Matrix addition of two sparse matrices.
     Args:
@@ -50,8 +54,10 @@ class CsrLinOp(xitorch.LinearOperator):
         return [prefix+"v"]
 
 linop = CsrLinOp(index, value, mat.shape[0])
-from time import time
-from xitorch import linalg
+eigval, eigvec = linalg.symeig(linop,neig=3, method="davidson", max_niter=1000, nguess=None, v_init="randn",
+                                    max_addition=None, min_eps=1e-07, verbose=False, bck_options={'method':
+                                    'bicgstab','rtol':1e-05, 'atol':1e-06, 'eps':1e-8,'verbose':False, 'max_niter':10000})
+print('marius eigval vs xitorch eigval:', eigval_test, eigval)
 
 
 new_value = value.clone()
@@ -62,7 +68,7 @@ for i in range(100):
                                     max_addition=None, min_eps=1e-05, verbose=True, bck_options={'method':
                                     'bicgstab','rtol':1e-05, 'atol':1e-06, 'eps':1e-8,'verbose':False, 'max_niter':10000})
     #careful with the convergence criteria
-    test = torch.sum(torch.matmul(eigvec[:,0], torch.arange(mat.shape[0]).double().cuda())/65000.0)
+    test = torch.sum(torch.matmul(eigvec[:,0], torch.arange(mat.shape[0]).double().to(value.device))/65000.0)
     #random loss function
     print("result", test)
     new_value =new_value - 0.2*torch.autograd.grad(test, new_value)[0]
