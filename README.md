@@ -1,4 +1,4 @@
-# Sparse Eigen
+# DSKY-Differentiable-spin-chain-on-skyrmion
 python 3.9
 packages
 * numpy                     1.21.4                
@@ -10,4 +10,3 @@ packages
 * torchvision               0.9.1+cu101              
 * xitorch                   0.4.0.dev0+7919bb0      
 
-ps: wirklich schnell mit gpu
