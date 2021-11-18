@@ -1,7 +1,7 @@
 import torch, xitorch, numpy as np, torch_sparse as ts
 import scipy
-mat = np.load('matrix.npy', allow_pickle=True)[()]
-eigval_test = np.load('evals.npy', allow_pickle=True)
+mat = np.load('data/matrix.npy', allow_pickle=True)[()]
+eigval_test = np.load('data/evals.npy', allow_pickle=True)
 #eigvec_test = np.load('evecs.npy', allow_pickle=True)[()]
 import torch
 from torch_sparse import coalesce
