@@ -1,6 +1,3 @@
-import sys
-sys.path.append("/nfs/home/mamelz/PythonModules")
-
 import numpy
 import scipy
 import torch
@@ -146,15 +143,31 @@ def ham_j1(L, J1 = 1.0, prec = 64):
 
             yield sparse_ikron(tensor_sum(summands), L, coo)
 
-    ham = tensor_elem_mul(tensor_sum(j1_terms()), J1/4, ret = True)
+    ham = tensor_elem_mul(tensor_sum(j1_terms()), J1 / 4, ret = True)
 
     return ham
 
+if __name__ == '__main__':
+    L = 16
+    neigs = 3
+    H = ham_j1(L)
 
-H = ham_j1(16).storage._value.requires_grad_()
+    from xitorch import linalg
+    from test_sparse_eigen import CsrLinOp
+    H_linop = CsrLinOp(torch.stack([H.storage._row, H.storage._col], dim = 0), H.storage._value, H.size(0))
 
-print(H.coo)
-print(torch.linalg.eigh(H.to_dense())[0])
+    eigvals, eigvecs = linalg.symeig(H_linop, neig = neigs, method = "davidson", max_niter = 1000, nguess = None, v_init = "randn",
+                                   max_addition = None, min_eps = 1e-07, verbose = False,
+                                   bck_options = {'method':'bicgstab','rtol':1e-05, 'atol':1e-06, 'eps':1e-8,'verbose':False, 'max_niter':10000})
+    from bipartite_entropy import calculate_entropies
+
+    import time
+    start_time = time.time()
+    for i_eig in range(neigs):
+        print("Entanglement for state " + str(i_eig) +" is:", calculate_entropies(eigvecs[:, i_eig], L, [2]*L))
+    print("Time for entanglement calculation:", time.time() - start_time)
+
+
 
             
 
