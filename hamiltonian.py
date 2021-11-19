@@ -1,4 +1,4 @@
-import numpy
+import numpy as np
 import scipy
 import torch
 import torch_sparse
@@ -32,7 +32,6 @@ eye64 = torch_sparse.SparseTensor(row = torch.tensor([0,1]), col = torch.tensor(
 def sparse_kron(A,B):
 
     if A.nnz == 0 or B.nnz == 0:
-
         return torch_sparse.SparseTensor.from_dense(torch.zeros(A.sparse_sizes[0] * B.sparse_sizes[0], A.sparse_sizes[1] * B.sparse_sizes[1]))
 
     row = A.storage.row().repeat_interleave(B.nnz())
@@ -50,7 +49,7 @@ def sparse_kron(A,B):
     data = data.reshape((-1,B.nnz())) * B.storage.value()
     data = data.reshape((-1))
 
-    return torch_sparse.SparseTensor(row = row, col = col, value = data)
+    return torch_sparse.SparseTensor(row = row, col = col, value = data, sparse_sizes = (A.sparse_sizes()[0] * B.sparse_sizes()[0], A.sparse_sizes()[1] * B.sparse_sizes()[1]))
 
 
 #tensoring A of shape(2n,2n) sitting at sites=[i, ..., i+n] into larger hilbertspace by padding with 2x2-identities from left and right
@@ -74,7 +73,6 @@ def sparse_ikron(A, L, sites, prec = 64):
         res = A
 
         for i in range(L-sites[-1]-1):
-
             res = sparse_kron(res, eye)
         
         return res
@@ -93,13 +91,10 @@ def sparse_ikron(A, L, sites, prec = 64):
 def tensor_sum(it):
 
     for i,tensor in enumerate(it):
-
         if i == 0:
-
             res = tensor
         
         else:
-
             res = torch_sparse.add(res,tensor)
     
     return res
@@ -108,29 +103,53 @@ def tensor_sum(it):
 #product with scalar
 def tensor_elem_mul(A, c, ret = False):
 
-    A.storage._value = torch.mul(A.storage._value, c)
-
     if ret:
 
-        return A
+        A_copy = A.copy()
+        A_copy.storage._value = torch.mul(A_copy.storage._value, c)
+        return A_copy
+    
+    else:
 
-    return
+        A.storage._value = torch.mul(A.storage._value, c)
+        return
 
 
-def ham_j1(L, J1 = 1.0, prec = 64):
+
+def set_prec(prec):
 
     if prec ==64:
-
         pauli = pauli64
         ladder = ladder64
     
     elif prec == 32:
-
         pauli = pauli32
         ladder = ladder32
     
     else:
         raise ValueError("prec must be either 32 or 64")
+    
+    return pauli,ladder
+
+
+
+
+def ham_j1(L, J1 = 1.0, prec = 64):
+    """
+    Constructs the isotropic J1-Hamiltonian 
+    
+    Parameters
+    ----------
+    L     : int length of the spin chain
+    J1    : float coupling strength of interaction, optional
+    prec  : either 32 or 64, sets float precision to be used
+
+    Returns
+    -------
+    ham : torch_sparse.SparseTensor
+    """
+
+    pauli,ladder = set_prec(prec)
 
     summands = [sparse_kron(ladder[0],ladder[1]), sparse_kron(ladder[1],ladder[0]), sparse_kron(pauli[2],pauli[2])]
 
@@ -147,10 +166,76 @@ def ham_j1(L, J1 = 1.0, prec = 64):
 
     return ham
 
+
+def ham_mag(L, B0, B_ext, theta, prec=64):
+    """
+    Constructs the magnetic interaction Hamiltonian produced by a magnetic Skyrmion of amplitude B0 and a global magnetic field in z-direction with amplitude B_ext
+    
+    Parameters
+    ----------
+    L     : int length of the spin chain
+    B0    : float amplitude of Skyrmion
+    B_ext : float amplitude of global magnetic field in z-direction
+    theta   : list of float of length L contains the angles in xz-plane between magnetic field and z-axis
+
+    Returns
+    -------
+    ham : torch_sparse.SparseTensor
+    """
+
+    pauli,ladder = set_prec(prec)
+
+    def ext_terms():
+
+        for i in range(L):
+            yield tensor_elem_mul(sparse_ikron(pauli[2], L, [i], prec), -B_ext / 2, ret = True)
+    
+
+    def sky_x_terms():
+
+        for i,cphi in enumerate(theta):
+            yield sparse_ikron(tensor_elem_mul(pauli[0],B0 * np.sin(cphi) / 2, ret = True), L, [i], prec = prec)
+
+
+    def sky_z_terms():
+
+        for i,cphi in enumerate(theta):
+            yield sparse_ikron(tensor_elem_mul(pauli[2],-B0 * np.cos(cphi) / 2, ret = True), L, [i], prec = prec)
+    
+    ham = tensor_sum([tensor_sum(ext_terms()), tensor_sum(sky_x_terms()), tensor_sum(sky_z_terms())])
+
+    return ham
+
+
+
 if __name__ == '__main__':
-    L = 16
+    L = 20
+
+    J1 = -1.0
+    B0 = 0.4
+    B_ext = -0.08
+
+    scalfac = 1.0
+    delta = 0.5
+    center = L/2 - 0.5
+
+    def theta(x,q,delta,scalfac):
+
+        if np.abs(x-q) < 1.0e-10:
+            return 0
+
+
+        return(np.sign(x-q)*2*np.arctan(np.exp((np.abs((x-q)/scalfac)-1/np.abs((x-q)/scalfac))/delta)))
+    
+    theta_list = [theta(i,center,delta,scalfac) for i in range(L)]
+
+    
+    H_j1 = ham_j1(L, J1 = J1)
+    H_mag = ham_mag(L, B0, B_ext, theta_list)
+
+    H = torch_sparse.add(H_j1, H_mag)
+
     neigs = 3
-    H = ham_j1(L)
 
     from xitorch import linalg
     from test_sparse_eigen import CsrLinOp
@@ -163,8 +248,10 @@ if __name__ == '__main__':
 
     import time
     start_time = time.time()
+    print("Energies: ", eigvals)
     for i_eig in range(neigs):
         print("Entanglement for state " + str(i_eig) +" is:", calculate_entropies(eigvecs[:, i_eig], L, [2]*L))
+        print("Maximum entanglement for state " + str(i_eig) +" is:", calculate_entropies(eigvecs[:, i_eig], L, [2]*L)[L//2 - 1])
     print("Time for entanglement calculation:", time.time() - start_time)
 
 
