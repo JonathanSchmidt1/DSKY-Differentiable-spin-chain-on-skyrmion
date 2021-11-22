@@ -252,6 +252,24 @@ def ham_mag(L, B0, B_ext, theta, prec=64):
     return ham
 
 
+def ham_total(L, J1, B0, B_ext, theta, prec=64):
+
+    return add_tensor(ham_j1(L, J1 = J1), ham_mag(L, B0, B_ext, theta))
+
+
+def Sky_phi(L, q, delta, scalfac):
+
+    def theta(x, q, delta, scalfac):
+
+        if np.abs(x-q) < 1.0e-10:
+            return 0
+
+
+        return(np.sign(x-q)*2*np.arctan(np.exp((np.abs((x-q)/scalfac)-1/np.abs((x-q)/scalfac))/delta)))
+
+    return [theta(i, q, delta, scalfac) for i in range(L)]
+
+
 
 if __name__ == '__main__':
     L = 16
@@ -263,18 +281,9 @@ if __name__ == '__main__':
     scalfac = 1.0
     delta = 0.5
     center = L/2 - 0.5
-
-    def theta(x,q,delta,scalfac):
-
-        if np.abs(x-q) < 1.0e-10:
-            return 0
-
-
-        return(np.sign(x-q)*2*np.arctan(np.exp((np.abs((x-q)/scalfac)-1/np.abs((x-q)/scalfac))/delta)))
     
-    
-    
-    theta_list = [theta(i,center,delta,scalfac) for i in range(L)]
+
+    theta_list = [Sky_phi(i,center,delta,scalfac) for i in range(L)]
 
     print("Theta: ", theta_list)
 
