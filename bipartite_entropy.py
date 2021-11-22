@@ -1,3 +1,4 @@
+
 import torch
 from partial_trace import partial_trace
 
@@ -53,9 +54,11 @@ def calculate_entropies(state, L, dims, device = 'cuda'):
 
 if __name__ == "__main__":
     import numpy as np
-    a = torch.tensor([0 , 1 / np.sqrt(2), 1 / np.sqrt(2), 0, 0, 0, 0, 0], dtype = torch.complex128, device = 'cuda')
+    a = torch.tensor([0 , 1 / np.sqrt(2), 1 / np.sqrt(2), 0, 0, 0, 0, 0], dtype = torch.complex128, device = 'cuda').requires_grad_()
     print("Entropy divided by ln(2):", calculate_entropy(a, 3, [2, 2, 2], [0]) / np.log(2))
     print(calculate_entropies(a, 3, [2, 2, 2]))
+    loss = torch.sum(calculate_entropies(a, 3, [2, 2, 2]))
+    print("check if derivative can be calculated and is non-zero:", (torch.sum(torch.abs(torch.autograd.grad(loss, a)[0]))>0).item())
 
 
 
