@@ -34,8 +34,7 @@ class HamModule(nn.Module):
         ----------
         eigvals (torch.tensor) and eigvectors (torch.tensor)
         """
-        H = ham_total(self.L.item(), self.J1 , self.B_0.item(), self.B_ext.item(), self.phi_i.data, prec=64)
-        #H_linop = CsrLinOp(torch.stack([H.storage._row, H.storage._col], dim=0), H.storage._value * self.B_0, H.size(0))
+        H = ham_total(self.L.item(), self.J1 , self.B_0, self.B_ext, self.phi_i, prec=64)
         H_linop = CsrLinOp(torch.stack([H.storage._row, H.storage._col], dim=0), H.storage._value, H.size(0))
         eigvals, eigvecs = linalg.symeig(H_linop, neig=n_eigs, method="davidson", max_niter=1000, nguess=None,
                                          v_init="randn",
@@ -66,14 +65,17 @@ if __name__ == "__main__":
     H = HamModule(L, J1, B_0, B_ext, phi_i, device='cpu')
     optimizer = torch.optim.Adam(H.parameters(),
                            lr= 0.0001)
-    optimizer.zero_grad()
 
     for i in range(10):
         eigvals, eigvecs = H.forward(n_eigs)
         loss = torch.tensor([0.]).requires_grad_().cuda()
         for i_eig in range(1):
             loss += torch.sum(weight_list * calculate_entropies(eigvecs[:, i_eig], L, [2] * L))
-        #TODO: if you want to test backward comment back in line 37 to get a dependence of the Hamiltonian on the parameters
+        
         print(loss)
+
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+    
