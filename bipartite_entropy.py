@@ -25,7 +25,7 @@ def calculate_entropy(state, L, dims, sys_a):
 
     reduced_densmat = partial_trace(state, dims, keep = sys_a)
     eigvals = torch.linalg.eigh(reduced_densmat)[0]
-    eigvals = eigvals[eigvals > 1e-6]
+    eigvals = eigvals[eigvals > 1e-10]
     entanglement = torch.sum(- eigvals * torch.log(eigvals))
     return entanglement
 

@@ -245,7 +245,7 @@ def ham_mag(L, B0, B_ext, theta, prec=64):
     def sky_z_terms():
 
         for i,cphi in enumerate(theta):
-            yield sparse_ikron(tensor_elem_mul(pauli[2],-B0 * torch.cos(cphi) / 2), L, [i], prec = prec)
+            yield sparse_ikron(tensor_elem_mul(pauli[2],B0 * torch.cos(cphi) / 2), L, [i], prec = prec)
     
     ham = tensor_sum([tensor_sum(ext_terms()), tensor_sum(sky_x_terms()), tensor_sum(sky_z_terms())])
 
