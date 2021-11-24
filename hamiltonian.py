@@ -252,7 +252,6 @@ def ham_mag(L, B0, B_ext, theta, prec=64, device='cuda'):
 
 
 def ham_total(L, J1, B0, B_ext, theta, prec=64):
-    print(ham_j1(L, J1 = J1).device(), ham_mag(L, B0, B_ext, theta).device())
     return add_tensor(ham_j1(L, J1 = J1, prec=prec, device=B_ext.device), ham_mag(L, B0, B_ext, theta, prec=prec, device=B_ext.device))
 
 
