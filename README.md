@@ -10,4 +10,5 @@ packages
 * torchvision               0.9.1+cu101              
 * xitorch                   0.4.0.dev0+7919bb0      
 * h5py                      3.4.0 nompi
+* matplotlib                3.5.0
 
