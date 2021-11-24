@@ -21,11 +21,13 @@ class HamModule(nn.Module):
         Returns
         ----------
         """
+
         super(HamModule, self).__init__()
         self.J_1 = J_1
-        self.L = nn.Parameter(torch.tensor(L), requires_grad=False)
-        self.B_0 = nn.Parameter(torch.tensor(B_0, device=device, dtype=dtype), requires_grad=True)
-        self.B_ext = nn.Parameter(torch.tensor(B_ext, device=device, dtype=dtype), requires_grad=True)
+        # named tensors are not supported for our usage
+        self.L = torch.tensor([L])#nn.Parameter(torch.tensor([L]), requires_grad=False)
+        self.B_0 = nn.Parameter(torch.tensor([B_0], device=device, dtype=dtype), requires_grad=True)
+        self.B_ext = nn.Parameter(torch.tensor([B_ext], device=device, dtype=dtype), requires_grad=True)
         self.phi_i = nn.Parameter(torch.tensor(phi_i, device=device, dtype=dtype), requires_grad=True)
 
 
@@ -62,12 +64,13 @@ if __name__ == "__main__":
     Path("output").mkdir(parents = True, exist_ok = True)
 
     L = 10
-    nsteps = 20
+    nsteps = 2000
     #weight list for loss function
     #weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
     weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
     print("The weight list for the entropy:", weight_list.tolist())
 
+    para_names = ["B_0", "B_ext", "phi_i"]
     J1 = -1.0
     B_0 = -0.4
     B_ext = -0.08
@@ -79,19 +82,23 @@ if __name__ == "__main__":
     phi_i = np.sqrt(np.diff(phis))
     n_eigs = 3
     H = HamModule(L, J1, B_0, B_ext, phi_i, device='cpu')
+
     optimizer = torch.optim.Adam(H.parameters(),
                            lr = 0.001)
 
     ideal_ent = torch.zeros(L - 1, dtype = torch.double).cuda()
     ideal_ent[L // 2 - 1] = np.log(2)
 
-    out_file = h5py.File('output/test_output.h5', 'w')
-    paramset = out_file.create_dataset("parameters", (2,))
-    paramset[0] = L
-    paramset[1] = J1
+    out_file = h5py.File('output/test_output.h5', 'w', libver = 'latest')
+    fixedset = out_file.create_dataset("fixed values", (2,), data = [L, J1])
 
     entset = out_file.create_dataset("entropy", (nsteps,L - 1))
     lossset = out_file.create_dataset("loss", (nsteps,))
+
+    paramsset = []
+    for i_para, para in enumerate(H.parameters()):
+        paramsset.append(out_file.create_dataset(para_names[i_para], (nsteps,) + para.detach().numpy().shape))
+    out_file.swmr_mode = True
 
     #out_file = open("output/entropy_loss.txt", "w")
     for i in range(nsteps):
@@ -104,7 +111,13 @@ if __name__ == "__main__":
         
         entlist = ent.tolist()
         entset[i] = entlist
+        entset.flush()
         lossset[i] = loss.item()
+        lossset.flush()
+
+        for i_para, para in enumerate(H.parameters()):
+            paramsset[i_para][i] = para.tolist()
+            paramsset[i_para].flush()
         print('loss[{}] ={}'.format(i + 1, loss.item()))
         #for i in range(L - 1):
         #    out_file.write(str(entlist[i]) + "\t")
