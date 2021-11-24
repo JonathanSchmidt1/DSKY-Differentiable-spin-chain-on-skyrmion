@@ -46,7 +46,11 @@ class HamModule(nn.Module):
         self.phi_i2 = self.phi_i2 * self.pi / self.phi_i2[-1]
         self.phi_i2 = self.phi_i2 - self.phi_i2[0]
         self.phi_i2 = torch.cat((self.phi_i2, torch.flip(2 * self.pi - self.phi_i2, (0,))))
-        H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i2, prec=64)
+        if self.B_0.dtype==torch.double:
+            H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i2, prec=64)
+        else:
+            H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i2, prec=32)
+
         H_linop = CsrLinOp(torch.stack([H.storage._row, H.storage._col], dim=0), H.storage._value, H.size(0))
         eigvals, eigvecs = linalg.symeig(H_linop, neig=n_eigs, method="davidson", max_niter=1000, nguess=None,
                                          v_init="randn",
@@ -60,9 +64,10 @@ if __name__ == "__main__":
     from hamiltonian import Sky_phi
     from pathlib import Path
     import h5py
+    import time
     Path("output").mkdir(parents = True, exist_ok = True)
 
-    L = 10
+    L = 20
     nsteps = 2000
     #weight list for loss function
     #weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
@@ -80,7 +85,7 @@ if __name__ == "__main__":
     phis = np.array(Sky_phi(L, center, delta, scalfac))[:L//2 + 1] + np.pi
     phi_i = np.sqrt(np.diff(phis))
     n_eigs = 3
-    H = HamModule(L, J1, B_0, B_ext, phi_i)
+    H = HamModule(L, J1, B_0, B_ext, phi_i, device='cuda')
 
     optimizer = torch.optim.Adam(H.parameters(),
                            lr = 0.001)
@@ -100,6 +105,7 @@ if __name__ == "__main__":
     out_file.swmr_mode = True
 
     #out_file = open("output/entropy_loss.txt", "w")
+    start = time.time()
     for i in range(nsteps):
         eigvals, eigvecs = H.forward(n_eigs)
         #print(eigvals)
@@ -125,11 +131,11 @@ if __name__ == "__main__":
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
+        print((time.time()-start)/(i+1))
     out_file.close()
     print("Entropy after optimization:", ent.tolist())
 
     for para in H.parameters():
 
         print(para)
-    
+   
