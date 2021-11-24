@@ -138,7 +138,7 @@ def sparse_ikron(A, L, sites, prec=64):
 def tensor_sum(it):
     for i, tensor in enumerate(it):
         if i == 0:
-            res = tensor
+            res = tensor.copy()
 
         else:
             res = add_tensor(res, tensor)
@@ -239,13 +239,13 @@ def ham_mag(L, B0, B_ext, theta, prec=64):
     def sky_x_terms():
 
         for i,cphi in enumerate(theta):
-            yield sparse_ikron(tensor_elem_mul(pauli[0],B0 * torch.sin(cphi) / 2), L, [i], prec = prec)
+            yield sparse_ikron(tensor_elem_mul(pauli[0], - B0 * torch.sin(cphi) / 2), L, [i], prec = prec)
 
 
     def sky_z_terms():
 
         for i,cphi in enumerate(theta):
-            yield sparse_ikron(tensor_elem_mul(pauli[2],B0 * torch.cos(cphi) / 2), L, [i], prec = prec)
+            yield sparse_ikron(tensor_elem_mul(pauli[2], - B0 * torch.cos(cphi) / 2), L, [i], prec = prec)
     
     ham = tensor_sum([tensor_sum(ext_terms()), tensor_sum(sky_x_terms()), tensor_sum(sky_z_terms())])
 
@@ -272,10 +272,10 @@ def Sky_phi(L, q, delta, scalfac):
 
 
 if __name__ == '__main__':
-    L = 16
+    L = 10
 
     J1 = -1.0
-    B0 = 0.4
+    B0 = -0.4
     B_ext = -0.08
 
     scalfac = 1.0
@@ -283,9 +283,17 @@ if __name__ == '__main__':
     center = L/2 - 0.5
     
 
-    theta_list = [Sky_phi(i,center,delta,scalfac) for i in range(L)]
+    theta_list = torch.tensor(Sky_phi(L,center,delta,scalfac)) + np.pi
+    phis = np.array(Sky_phi(L, center, delta, scalfac))[:L//2 + 1] + np.pi
+    phi_i = torch.tensor(np.sqrt(np.diff(phis)))
+    phi_i2 = torch.square(phi_i)
+    phi_i2 = torch.cumsum(phi_i2, 0)
+    phi_i2 = phi_i2 * np.pi / phi_i2[-1]
+    phi_i2 = phi_i2 - phi_i2[0]
+    theta_list = torch.cat((phi_i2, torch.flip(2 * np.pi - phi_i2, (0,))))
 
-    print("Theta: ", theta_list)
+    torch.set_printoptions(precision = 8)
+    print("Theta: ", theta_list / np.pi)
 
     
     H_j1 = ham_j1(L, J1 = J1)
