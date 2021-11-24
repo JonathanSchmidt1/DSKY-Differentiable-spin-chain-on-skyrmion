@@ -67,7 +67,7 @@ if __name__ == "__main__":
     import time
     Path("output").mkdir(parents = True, exist_ok = True)
 
-    L = 20
+    L = 16
     nsteps = 2000
     #weight list for loss function
     #weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()

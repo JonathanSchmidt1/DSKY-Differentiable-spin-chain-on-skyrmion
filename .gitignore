@@ -2,7 +2,9 @@
 output/
 
 # Selected Files
-
+script_queue.sh
+error.err
+output.out
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
