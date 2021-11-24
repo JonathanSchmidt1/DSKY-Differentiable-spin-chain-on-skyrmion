@@ -25,7 +25,7 @@ class HamModule(nn.Module):
         super(HamModule, self).__init__()
         self.J_1 = J_1
         # named tensors are not supported for our usage
-        self.L = torch.tensor([L])#nn.Parameter(torch.tensor([L]), requires_grad=False)
+        self.L = torch.tensor([L], device=device)#nn.Parameter(torch.tensor([L]), requires_grad=False)
         self.B_0 = nn.Parameter(torch.tensor([B_0], device=device, dtype=dtype), requires_grad=True)
         self.B_ext = nn.Parameter(torch.tensor([B_ext], device=device, dtype=dtype), requires_grad=True)
         self.phi_i = nn.Parameter(torch.tensor(phi_i, device=device, dtype=dtype), requires_grad=True)
@@ -46,7 +46,6 @@ class HamModule(nn.Module):
         self.phi_i2 = self.phi_i2 * self.pi / self.phi_i2[-1]
         self.phi_i2 = self.phi_i2 - self.phi_i2[0]
         self.phi_i2 = torch.cat((self.phi_i2, torch.flip(2 * self.pi - self.phi_i2, (0,))))
-        
         H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i2, prec=64)
         H_linop = CsrLinOp(torch.stack([H.storage._row, H.storage._col], dim=0), H.storage._value, H.size(0))
         eigvals, eigvecs = linalg.symeig(H_linop, neig=n_eigs, method="davidson", max_niter=1000, nguess=None,
@@ -81,7 +80,7 @@ if __name__ == "__main__":
     phis = np.array(Sky_phi(L, center, delta, scalfac))[:L//2 + 1] + np.pi
     phi_i = np.sqrt(np.diff(phis))
     n_eigs = 3
-    H = HamModule(L, J1, B_0, B_ext, phi_i, device='cpu')
+    H = HamModule(L, J1, B_0, B_ext, phi_i)
 
     optimizer = torch.optim.Adam(H.parameters(),
                            lr = 0.001)
@@ -97,7 +96,7 @@ if __name__ == "__main__":
 
     paramsset = []
     for i_para, para in enumerate(H.parameters()):
-        paramsset.append(out_file.create_dataset(para_names[i_para], (nsteps,) + para.detach().numpy().shape))
+        paramsset.append(out_file.create_dataset(para_names[i_para], (nsteps,) + para.detach().cpu().numpy().shape))
     out_file.swmr_mode = True
 
     #out_file = open("output/entropy_loss.txt", "w")

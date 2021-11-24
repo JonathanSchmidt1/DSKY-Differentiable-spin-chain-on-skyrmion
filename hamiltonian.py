@@ -102,10 +102,10 @@ def sparse_kron(A, B):
 # tensoring A of shape(2n,2n) sitting at sites=[i, ..., i+n] into larger hilbertspace by padding with 2x2-identities from left and right
 def sparse_ikron(A, L, sites, prec=64):
     if prec == 64:
-        eye = eye64
+        eye = eye64.to(A.device())
 
     elif prec == 32:
-        eye = eye32
+        eye = eye32.to(A.device())
 
     else:
         raise ValueError("prec must be either 32 or 64")
@@ -113,7 +113,7 @@ def sparse_ikron(A, L, sites, prec=64):
     # check for square matrix with dimension of power 2
     assert (A.sparse_sizes()[0] == A.sparse_sizes()[1] and (A.sparse_sizes()[0] & (A.sparse_sizes()[0] - 1) == 0) and
             A.sparse_sizes()[0] != 0)
-
+    
     if sites[0] > 0:
         res = eye
     else:
@@ -161,15 +161,15 @@ def tensor_elem_mul(A, c, inplace = False):
 
 
 
-def set_prec(prec):
+def set_prec(prec, device='cuda'):
 
     if prec ==64:
-        pauli = pauli64
-        ladder = ladder64
+        pauli = [el.to(device) for el in pauli64]
+        ladder = [el.to(device) for el in ladder64]
 
     elif prec == 32:
-        pauli = pauli32
-        ladder = ladder32
+        pauli = [el.to(device) for el in pauli32]
+        ladder = [el.to(device) for el in ladder32]
 
     else:
         raise ValueError("prec must be either 32 or 64")
@@ -179,7 +179,7 @@ def set_prec(prec):
 
 
 
-def ham_j1(L, J1 = 1.0, prec = 64):
+def ham_j1(L, J1 = 1.0, prec = 64, device='cuda'):
     """
     Constructs the isotropic J1-Hamiltonian 
     
@@ -194,7 +194,7 @@ def ham_j1(L, J1 = 1.0, prec = 64):
     ham : torch_sparse.SparseTensor
     """
 
-    pauli,ladder = set_prec(prec)
+    pauli,ladder = set_prec(prec, device)
 
     summands = [sparse_kron(ladder[0], ladder[1]), sparse_kron(ladder[1], ladder[0]), sparse_kron(pauli[2], pauli[2])]
 
@@ -212,7 +212,7 @@ def ham_j1(L, J1 = 1.0, prec = 64):
     return ham
 
 
-def ham_mag(L, B0, B_ext, theta, prec=64):
+def ham_mag(L, B0, B_ext, theta, prec=64, device='cuda'):
     """
     Constructs the magnetic interaction Hamiltonian produced by a magnetic Skyrmion of amplitude B0 and a global magnetic field in z-direction with amplitude B_ext
     
@@ -228,10 +228,9 @@ def ham_mag(L, B0, B_ext, theta, prec=64):
     ham : torch_sparse.SparseTensor
     """
 
-    pauli,ladder = set_prec(prec)
+    pauli,ladder = set_prec(prec, device)
 
     def ext_terms():
-
         for i in range(L):
             yield tensor_elem_mul(sparse_ikron(pauli[2], L, [i], prec), -B_ext / 2)
     
@@ -253,8 +252,8 @@ def ham_mag(L, B0, B_ext, theta, prec=64):
 
 
 def ham_total(L, J1, B0, B_ext, theta, prec=64):
-
-    return add_tensor(ham_j1(L, J1 = J1), ham_mag(L, B0, B_ext, theta))
+    print(ham_j1(L, J1 = J1).device(), ham_mag(L, B0, B_ext, theta).device())
+    return add_tensor(ham_j1(L, J1 = J1, prec=prec, device=B_ext.device), ham_mag(L, B0, B_ext, theta, prec=prec, device=B_ext.device))
 
 
 def Sky_phi(L, q, delta, scalfac):
