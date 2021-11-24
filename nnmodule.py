@@ -57,47 +57,65 @@ class HamModule(nn.Module):
 if __name__ == "__main__":
     from bipartite_entropy import calculate_entropies
     from hamiltonian import Sky_phi
+    from pathlib import Path
+    import h5py
+    Path("output").mkdir(parents = True, exist_ok = True)
 
-    L = 16
+    L = 10
+    nsteps = 20
     #weight list for loss function
     #weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
-    weight_list = torch.tensor([1 for i in range(1, L//2)] + [L - 2] + [1 for i in range(1, L//2)]).cuda()
-    print(weight_list)
+    weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
+    print("The weight list for the entropy:", weight_list.tolist())
 
     J1 = -1.0
     B_0 = -0.4
     B_ext = -0.08
     scalfac = 1.0
     delta = 0.5
-    center = L/2 - 0.5
+    center = L / 2 - 0.5
 
     phis = np.array(Sky_phi(L, center, delta, scalfac))[:L//2 + 1] + np.pi
     phi_i = np.sqrt(np.diff(phis))
     n_eigs = 3
     H = HamModule(L, J1, B_0, B_ext, phi_i, device='cpu')
     optimizer = torch.optim.Adam(H.parameters(),
-                           lr = 0.0001)
+                           lr = 0.001)
 
-    ent_list = []
     ideal_ent = torch.zeros(L - 1, dtype = torch.double).cuda()
     ideal_ent[L // 2 - 1] = np.log(2)
 
-    for i in range(100):
+    out_file = h5py.File('output/test_output.h5', 'w')
+    paramset = out_file.create_dataset("parameters", (2,))
+    paramset[0] = L
+    paramset[1] = J1
+
+    entset = out_file.create_dataset("entropy", (nsteps,L - 1))
+    lossset = out_file.create_dataset("loss", (nsteps,))
+
+    #out_file = open("output/entropy_loss.txt", "w")
+    for i in range(nsteps):
         eigvals, eigvecs = H.forward(n_eigs)
         #print(eigvals)
         loss = torch.tensor([0.]).requires_grad_().cuda()
         for i_eig in range(1):
             ent = calculate_entropies(eigvecs[:, i_eig], L, [2] * L)
             loss += torch.sum(torch.square(weight_list * (ent - ideal_ent)))
-            ent_list.append(ent)
         
-        print(loss.item())
+        entlist = ent.tolist()
+        entset[i] = entlist
+        lossset[i] = loss.item()
+        print('loss[{}] ={}'.format(i + 1, loss.item()))
+        #for i in range(L - 1):
+        #    out_file.write(str(entlist[i]) + "\t")
+        #out_file.write(str(loss.item()) + "\n")
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-    print(ent)
+    out_file.close()
+    print("Entropy after optimization:", ent.tolist())
 
     for para in H.parameters():
 
