@@ -49,6 +49,19 @@ def calculate_entropies(state, L, dims, device = 'cuda'):
         entanglements[bond] = calculate_entropy(state, L, dims, range(bond + 1))
     return entanglements
 
+def reduced_DM(state, L, centered = None, spin = 1 / 2):
+    assert L // 2 == 0
+    nd = int(2 * spin + 1)
+    if centered is None:
+        centered = L // 2
+    else:
+        assert type(centered) == int
+
+    reduced_densemats = []
+    for i in range(1, min(centered, L - centered)):
+        reduced_densemats.append(partial_trace(state, [nd] * L, keep = range(centered - i, centered + i)))
+    return reduced_densemats
+
     
 
 
