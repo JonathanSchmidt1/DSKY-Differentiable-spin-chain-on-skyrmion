@@ -1,5 +1,4 @@
 import numpy as np
-import scipy
 import torch
 import torch_sparse
 from torch_sparse import coalesce
@@ -73,7 +72,6 @@ def spadd(indexA, valueA, indexB, valueB, m, n):
     """
     index = torch.cat([indexA, indexB], dim=-1)
     value = torch.cat([valueA, valueB], dim=0)
-    #print(index, value)
     return coalesce(index=index, value=value, m=m, n=n, op='add')
 
 
