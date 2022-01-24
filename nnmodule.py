@@ -5,7 +5,6 @@ from xitorch import linalg
 from test_sparse_eigen import CsrLinOp
 import numpy as np
 
-#TODO: add new class for skyrmion with parametrization instead of phi_i. add parent class for these two HamModule classes
 
 class HamModule(nn.Module):
 
