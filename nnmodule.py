@@ -29,7 +29,11 @@ class HamModule(nn.Module):
         self.B_0 = nn.Parameter(torch.tensor([B_0], device=device, dtype=dtype), requires_grad=True)
         self.B_ext = nn.Parameter(torch.tensor([B_ext], device=device, dtype=dtype), requires_grad=True)
         self.phi_i = nn.Parameter(torch.tensor(phi_i, device=device, dtype=dtype), requires_grad=True)
+        self.phi_i2 = torch.zeros((L,), dtype = torch.float64)
 
+    def output_parameters(self):
+        
+        return [(param, getattr(self, param).detach().cpu().numpy()) for param in ["B_0", "B_ext", "phi_i2"]]
 
     def forward(self,n_eigs):
         """
@@ -45,7 +49,8 @@ class HamModule(nn.Module):
         self.phi_i2 = torch.cumsum(self.phi_i2, 0)
         self.phi_i2 = self.phi_i2 * self.pi / self.phi_i2[-1]
         self.phi_i2 = self.phi_i2 - self.phi_i2[0]
-        self.phi_i2 = torch.cat((self.phi_i2, torch.flip(2 * self.pi - self.phi_i2, (0,))))
+        #self.phi_i2 = torch.cat((self.phi_i2, torch.flip(2 * self.pi - self.phi_i2, (0,))))
+        self.phi_i2 = torch.cat((self.phi_i2, torch.flip(self.phi_i2, (0,))))
         if self.B_0.dtype==torch.double:
             H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i2, prec=64)
         else:
@@ -65,13 +70,14 @@ if __name__ == "__main__":
     from pathlib import Path
     import h5py
     import time
-    Path("output").mkdir(parents = True, exist_ok = True)
+    Path("output_dwall2").mkdir(parents = True, exist_ok = True)
 
-    L = 16
+    L = 12
     nsteps = 2000
     #weight list for loss function
     #weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
-    weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
+    #weight_list = torch.tensor([L//2 - i for i in range(1, L//2)] + [L - 2] + [i for i in range(1, L//2)]).cuda()
+    weight_list = torch.full((L-1,),1.0).cuda()
     print("The weight list for the entropy:", weight_list.tolist())
 
     para_names = ["B_0", "B_ext", "phi_i"]
@@ -86,22 +92,21 @@ if __name__ == "__main__":
     phi_i = np.sqrt(np.diff(phis))
     n_eigs = 3
     H = HamModule(L, J1, B_0, B_ext, phi_i, device='cuda')
-
     optimizer = torch.optim.Adam(H.parameters(),
                            lr = 0.001)
 
     ideal_ent = torch.zeros(L - 1, dtype = torch.double).cuda()
     ideal_ent[L // 2 - 1] = np.log(2)
 
-    out_file = h5py.File('output/test_output.h5', 'w', libver = 'latest')
+    out_file = h5py.File('output_dwall2/test_output.h5', 'w', libver = 'latest')
     fixedset = out_file.create_dataset("fixed values", (2,), data = [L, J1])
 
     entset = out_file.create_dataset("entropy", (nsteps,L - 1))
     lossset = out_file.create_dataset("loss", (nsteps,))
 
     paramsset = []
-    for i_para, para in enumerate(H.parameters()):
-        paramsset.append(out_file.create_dataset(para_names[i_para], (nsteps,) + para.detach().cpu().numpy().shape))
+    for i_para, para in enumerate(H.output_parameters()):
+        paramsset.append(out_file.create_dataset(para[0], (nsteps,) + para[1].shape))
     out_file.swmr_mode = True
 
     #out_file = open("output/entropy_loss.txt", "w")
@@ -120,8 +125,8 @@ if __name__ == "__main__":
         lossset[i] = loss.item()
         lossset.flush()
 
-        for i_para, para in enumerate(H.parameters()):
-            paramsset[i_para][i] = para.tolist()
+        for i_para, para in enumerate(H.output_parameters()):
+            paramsset[i_para][i] = para[1]
             paramsset[i_para].flush()
         print('loss[{}] ={}'.format(i + 1, loss.item()))
         #for i in range(L - 1):
