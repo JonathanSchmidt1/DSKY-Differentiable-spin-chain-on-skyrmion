@@ -10,14 +10,14 @@ class HamModule(nn.Module):
 
     pi = np.pi
 
-    def __init__(self, L, J_1,  B_0, B_ext, phi_i, device='cuda',dtype=torch.double):
+    def __init__(self, L, J_1,  B_0, B_ext, phi_diff, device='cuda',dtype=torch.double):
         """
         Parameters
         ----------
         L: int Length of spin chain
         B_0: float initial B_0
         B_ext: float initial B_ext
-        phi_i: float array of angle differences
+        phi_diff: float array of angle differences
         Returns
         ----------
         """
@@ -28,12 +28,12 @@ class HamModule(nn.Module):
         self.L = torch.tensor([L], device=device)#nn.Parameter(torch.tensor([L]), requires_grad=False)
         self.B_0 = nn.Parameter(torch.tensor([B_0], device=device, dtype=dtype), requires_grad=True)
         self.B_ext = nn.Parameter(torch.tensor([B_ext], device=device, dtype=dtype), requires_grad=True)
-        self.phi_i = nn.Parameter(torch.tensor(phi_i, device=device, dtype=dtype), requires_grad=True)
-        self.phi_i2 = torch.zeros((L,), dtype = torch.float64)
+        self.phi_diff = nn.Parameter(torch.tensor(phi_diff, device=device, dtype=dtype), requires_grad=True)
+        self.phi_i = torch.zeros((L,), dtype = torch.float64)
 
     def output_parameters(self):
         
-        return [(param, getattr(self, param).detach().cpu().numpy()) for param in ["B_0", "B_ext", "phi_i2"]]
+        return [(param, getattr(self, param).detach().cpu().numpy()) for param in ["B_0", "B_ext", "phi_i"]]
 
     def forward(self,n_eigs):
         """
@@ -45,16 +45,16 @@ class HamModule(nn.Module):
         eigvals (torch.tensor) and eigvectors (torch.tensor)
         """
 
-        self.phi_i2 = torch.square(self.phi_i)
-        self.phi_i2 = torch.cumsum(self.phi_i2, 0)
-        self.phi_i2 = self.phi_i2 * self.pi / self.phi_i2[-1]
-        self.phi_i2 = self.phi_i2 - self.phi_i2[0]
-        #self.phi_i2 = torch.cat((self.phi_i2, torch.flip(2 * self.pi - self.phi_i2, (0,))))
-        self.phi_i2 = torch.cat((self.phi_i2, torch.flip(self.phi_i2, (0,))))
+        self.phi_i = torch.square(self.phi_diff)
+        self.phi_i = torch.cumsum(self.phi_i, 0)
+        self.phi_i = self.phi_i * self.pi / self.phi_i[-1]
+        self.phi_i = self.phi_i - self.phi_i[0]
+        #self.phi_i = torch.cat((self.phi_i, torch.flip(2 * self.pi - self.phi_i, (0,))))
+        self.phi_i = torch.cat((self.phi_i, torch.flip(self.phi_i, (0,))))
         if self.B_0.dtype==torch.double:
-            H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i2, prec=64)
+            H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i, prec=64)
         else:
-            H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i2, prec=32)
+            H = ham_total(self.L.item(), self.J_1 , self.B_0, self.B_ext, self.phi_i, prec=32)
 
         H_linop = CsrLinOp(torch.stack([H.storage._row, H.storage._col], dim=0), H.storage._value, H.size(0))
         eigvals, eigvecs = linalg.symeig(H_linop, neig=n_eigs, method="davidson", max_niter=1000, nguess=None,
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     weight_list = torch.full((L-1,),1.0).cuda()
     print("The weight list for the entropy:", weight_list.tolist())
 
-    para_names = ["B_0", "B_ext", "phi_i"]
+    para_names = ["B_0", "B_ext", "phi_diff"]
     J1 = -1.0
     B_0 = -0.4
     B_ext = -0.08
@@ -89,9 +89,9 @@ if __name__ == "__main__":
     center = L / 2 - 0.5
 
     phis = np.array(Sky_phi(L, center, delta, scalfac))[:L//2 + 1] + np.pi
-    phi_i = np.sqrt(np.diff(phis))
+    phi_diff = np.sqrt(np.diff(phis))
     n_eigs = 3
-    H = HamModule(L, J1, B_0, B_ext, phi_i, device='cuda')
+    H = HamModule(L, J1, B_0, B_ext, phi_diff, device='cuda')
     optimizer = torch.optim.Adam(H.parameters(),
                            lr = 0.001)
 
