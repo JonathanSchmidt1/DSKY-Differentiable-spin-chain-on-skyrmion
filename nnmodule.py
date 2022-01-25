@@ -74,8 +74,10 @@ class HamModule_param(HamModule):
         super().__init__(L, J_1, B_0, B_ext, device = device, dtype = dtype)
         self.scalfac = nn.Parameter(torch.tensor([scalfac], device=device, dtype=dtype), requires_grad=True)
         self.delta = nn.Parameter(torch.tensor([delta], device=device, dtype=dtype), requires_grad=True)
-        self.device = device
-        self.dtype = dtype
+        self.phi_i = torch.zeros((L,), device = device, dtype = dtype)
+        print(self.phi_i.cpu().numpy())
+        #self.device = device
+        #self.dtype = dtype
     
     def output_parameters(self):
         
@@ -83,11 +85,7 @@ class HamModule_param(HamModule):
     
     def get_phi_i(self):
 
-        L_item = self.L.item()
-        delta_item = self.delta.item()
-        scalfac_item = self.scalfac.item()
-
-        self.phi_i = torch.tensor(np.array(Sky_phi(L_item, L_item/2 - 0.5, delta_item, scalfac_item)) + np.pi, device = self.device, dtype = self.dtype)
+        self.phi_i = torch.tensor(np.array(Sky_phi(self.L.item(), self.L.item()/2 - 0.5, self.delta.item(), self.scalfac.item())) + np.pi, device = self.phi_i.device, dtype = self.phi_i.dtype)
 
         return
     

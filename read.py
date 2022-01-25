@@ -24,12 +24,15 @@ def read(filename, folder = "output/", plot = True, min_params = ["B_0", "B_ext"
     phi_i = file["phi_i"][()][min_ind]
 
     if plot:
-        plt.plot(file["B_0"][()])
-        plt.savefig(folder + "B_0.png")
-        plt.close()
 
-        plt.plot(file["B_ext"][()])
-        plt.savefig(folder + "B_ext.png")
+        for param in min_params:
+
+            plt.plot(file[param][()])
+            plt.title(param)
+            plt.savefig(folder + param + ".png")
+        
+        plt.plot(file["loss"][()])
+        plt.savefig(folder + "loss.png")
         plt.close()
 
         plt.plot(np.cos(phi_i))
@@ -38,13 +41,5 @@ def read(filename, folder = "output/", plot = True, min_params = ["B_0", "B_ext"
         plt.savefig(folder + "phi_i.png")
         plt.close()
 
-        plt.plot(file["entropy"][()])
-        plt.savefig(folder + "entropy.png")
-        plt.close()
-
-        plt.plot(file["loss"][()])
-        plt.savefig(folder + "loss.png")
-        plt.close()
-
-read("test_output.h5", folder="output_dwall2/")
+read("test_output.h5", folder="output_dwall2/", min_params = ["B_0", "B_ext", "scalfac", "delta", "entropy"])
 #read("test_output.h5", folder="output_skyrmion2/")
