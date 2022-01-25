@@ -8,7 +8,9 @@ import torch
 import numpy as np
 
 
-Path("output_dwall2").mkdir(parents = True, exist_ok = True)
+output_dir = "output_skyrmion_param"
+
+Path(output_dir).mkdir(parents = True, exist_ok = True)
 L = 12
 nsteps = 2000
 #weight list for loss function
@@ -34,7 +36,7 @@ optimizer = torch.optim.Adam(H.parameters(),
                        lr = 0.001)
 ideal_ent = torch.zeros(L - 1, dtype = torch.double).cuda()
 ideal_ent[L // 2 - 1] = np.log(2)
-out_file = h5py.File('output_dwall2/test_output.h5', 'w', libver = 'latest')
+out_file = h5py.File(output_dir +'/test_output.h5', 'w', libver = 'latest')
 fixedset = out_file.create_dataset("fixed values", (2,), data = [L, J1])
 entset = out_file.create_dataset("entropy", (nsteps,L - 1))
 lossset = out_file.create_dataset("loss", (nsteps,))
