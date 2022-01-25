@@ -1,7 +1,7 @@
 from bipartite_entropy import calculate_entropies
 from hamiltonian import Sky_phi
 from pathlib import Path
-from nnmodule import HamModule_phi
+from nnmodule import HamModule_param, HamModule_phi
 import h5py
 import time
 import torch
@@ -25,8 +25,11 @@ delta = 0.5
 center = L / 2 - 0.5
 phis = np.array(Sky_phi(L, center, delta, scalfac))[:L//2 + 1] + np.pi
 phi_diff = np.sqrt(np.diff(phis))
+#H = HamModule_phi(L, J1, B_0, B_ext, phi_diff, device='cuda')
+
+H = HamModule_param(L, J1, B_0, B_ext, scalfac, delta)
+
 n_eigs = 3
-H = HamModule_phi(L, J1, B_0, B_ext, phi_diff, device='cuda')
 optimizer = torch.optim.Adam(H.parameters(),
                        lr = 0.001)
 ideal_ent = torch.zeros(L - 1, dtype = torch.double).cuda()

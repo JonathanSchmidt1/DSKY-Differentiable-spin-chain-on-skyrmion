@@ -4,13 +4,14 @@ from hamiltonian import ham_total
 from xitorch import linalg
 from test_sparse_eigen import CsrLinOp
 import numpy as np
+from hamiltonian import Sky_phi
 
 
 class HamModule(nn.Module):
 
     pi = np.pi
 
-    def __init__(self, L, J_1,  B_0, B_ext, device='cuda',dtype=torch.double):
+    def __init__(self, L, J_1, B_0, B_ext, device='cuda',dtype=torch.double):
         """
         Parameters
         ----------
@@ -55,9 +56,9 @@ class HamModule(nn.Module):
 
 
 
-class HamModule_param(nn.Module):
+class HamModule_param(HamModule):
 
-    def __init__(self, L, J_1,  B_0, B_ext, scalfac, delta, device='cuda',dtype=torch.double):
+    def __init__(self, L, J_1,  B_0, B_ext, scalfac, delta, device='cuda', dtype=torch.double):
         """
         Parameters
         ----------
@@ -70,13 +71,23 @@ class HamModule_param(nn.Module):
         ----------
         """
 
-        super(HamModule_phi, self).__init__(L, J_1, B_0, B_ext, device = device, dtype = dtype)
+        super().__init__(L, J_1, B_0, B_ext, device = device, dtype = dtype)
         self.scalfac = nn.Parameter(torch.tensor([scalfac], device=device, dtype=dtype), requires_grad=True)
         self.delta = nn.Parameter(torch.tensor([delta], device=device, dtype=dtype), requires_grad=True)
+        self.device = device
+        self.dtype = dtype
+    
+    def output_parameters(self):
+        
+        return [(param, getattr(self, param).detach().cpu().numpy()) for param in ["B_0", "B_ext", "scalfac", "delta", "phi_i"]]
     
     def get_phi_i(self):
 
-        self.phi_i = np.array(Sky_phi(self.L, self.L/2 - 0.5, self.delta, self.scalfac))+ np.pi
+        L_item = self.L.item()
+        delta_item = self.delta.item()
+        scalfac_item = self.scalfac.item()
+
+        self.phi_i = torch.tensor(np.array(Sky_phi(L_item, L_item/2 - 0.5, delta_item, scalfac_item)) + np.pi, device = self.device, dtype = self.dtype)
 
         return
     
@@ -108,7 +119,7 @@ class HamModule_phi(HamModule):
         ----------
         """
 
-        super(HamModule_phi, self).__init__(L, J_1, B_0, B_ext, device = device, dtype = dtype)
+        super().__init__(L, J_1, B_0, B_ext, device = device, dtype = dtype)
         self.phi_diff = nn.Parameter(torch.tensor(phi_diff, device=device, dtype=dtype), requires_grad=True)
 
     def get_phi_i(self, which):
