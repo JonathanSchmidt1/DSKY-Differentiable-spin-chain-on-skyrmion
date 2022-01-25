@@ -9,8 +9,6 @@ from hamiltonian import Sky_phi
 
 class HamModule(nn.Module):
 
-    pi = np.pi
-
     def __init__(self, L, J_1, B_0, B_ext, device='cuda',dtype=torch.double):
         """
         Parameters
@@ -80,9 +78,9 @@ class HamModule_param(HamModule):
         
         return [(param, getattr(self, param).detach().cpu().numpy()) for param in ["B_0", "B_ext", "scalfac", "delta", "phi_i"]]
     
-    def get_phi_i(self):
+    def set_phi_i(self):
 
-        self.phi_i = torch.tensor(np.array(Sky_phi(self.L.item(), self.L.item()/2 - 0.5, self.delta.item(), self.scalfac.item())) + np.pi, device = self.phi_i.device, dtype = self.phi_i.dtype)
+        self.phi_i = torch.tensor(Sky_phi(self.L.item(), self.L.item()/2 - 0.5, self.delta.item(), self.scalfac.item()), device = self.phi_i.device, dtype = self.phi_i.dtype) + torch.pi
 
         return
     
@@ -96,7 +94,7 @@ class HamModule_param(HamModule):
         eigvals (torch.tensor) and eigvectors (torch.tensor)
         """
 
-        self.get_phi_i()
+        self.set_phi_i()
         return super().MakeHamAndSolve(n_eigs)
 
 
@@ -117,7 +115,7 @@ class HamModule_phi(HamModule):
         super().__init__(L, J_1, B_0, B_ext, device = device, dtype = dtype)
         self.phi_diff = nn.Parameter(torch.tensor(phi_diff, device=device, dtype=dtype), requires_grad=True)
 
-    def get_phi_i(self, which):
+    def set_phi_i(self, which):
 
         self.phi_i = torch.square(self.phi_diff)
         self.phi_i = torch.cumsum(self.phi_i, 0)
@@ -150,5 +148,5 @@ class HamModule_phi(HamModule):
         eigvals (torch.tensor) and eigvectors (torch.tensor)
         """
 
-        self.get_phi_i("skyrmion")
+        self.set_phi_i("skyrmion")
         return super().MakeHamAndSolve(n_eigs)
