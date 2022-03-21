@@ -41,5 +41,5 @@ def read(filename, folder = "output/", plot = True, min_params = ["B_0", "B_ext"
         plt.savefig(folder + "phi_i.png")
         plt.close()
 
-read("test_output.h5", folder="output_dwall2/", min_params = ["B_0", "B_ext", "scalfac", "delta", "entropy"])
+read("test_output.h5", min_params = ["B_0", "B_ext", "scalfac", "delta", "entropy"])#, folder="output_dwall2/")
 #read("test_output.h5", folder="output_skyrmion2/")

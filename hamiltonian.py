@@ -250,7 +250,7 @@ def ham_mag(L, B0, B_ext, theta, prec=64, device='cuda'):
 
 
 def ham_total(L, J1, B0, B_ext, theta, prec=64):
-    return add_tensor(ham_j1(L, J1 = J1, prec=prec, device=B_ext.device), ham_mag(L, B0, B_ext, theta, prec=prec, device=B_ext.device))
+    return add_tensor(ham_j1(L, J1 = J1, prec = prec, device = B_ext.device), ham_mag(L, B0, B_ext, theta, prec = prec, device = B_ext.device))
 
 
 def Sky_phi(L, q, delta, scalfac):
@@ -260,8 +260,14 @@ def Sky_phi(L, q, delta, scalfac):
         if np.abs(x-q) < 1.0e-10:
             return 0
 
-
-        return(np.sign(x-q)*2*np.arctan(np.exp((np.abs((x-q)/scalfac)-1/np.abs((x-q)/scalfac))/delta)))
+        exponent = (np.abs((x - q) / scalfac) - 1 / np.abs((x - q) / scalfac)) / delta
+        if exponent < -32:
+            out = np.sign(x-q)*2*np.arctan(0)
+        elif exponent > 32:
+            out = np.sign(x-q)*np.pi
+        else:
+            out = np.sign(x-q) * 2 * np.arctan(exponent)
+        return out
 
     return [theta(i, q, delta, scalfac) for i in range(L)]
 
