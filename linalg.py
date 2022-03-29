@@ -2,10 +2,7 @@ from torch import tensor, stack, float64, float32, profiler, device, tensordot
 from torch import linalg
 import torch
 import numpy as np
-from hamiltonian import Sky_phi
-from hamiltonian import ham_total
-from xitorch import linalg
-from test_sparse_eigen import CsrLinOp
+#from xitorch import linalg
 
 #see https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.cond.html
 def cond(pred, true_fun, false_fun, *operands):
@@ -28,24 +25,49 @@ def fori_loop(lower, upper, body_fun, init_val):
         val = body_fun(i, val)
     return val
 
-def shifted_QR(Vm, Hm, fm, shifts, numeig, device = "cuda"):
+
+def shifted_QR(Vm, Hm, fm, shifts, numeig_tensor, device = "cuda"):
     # compress arnoldi factorization
+    device = device_tensor.item()
     q = torch.tensor((), dtype=Hm.dtype, device = device).new_zeros((Hm.size(0)))
     q[-1] = 1.0
+    numeig = numeig_tensor.item()
 
     def body(i, vals):
       Vm, Hm, q = vals
-      shift = shifts[i] * torch.eye(Hm.size()[0], dtype=Hm.dtype, device = device)
+      shift = shifts[i] * torch.eye(Hm.size(0), dtype=Hm.dtype, device = device)
       Qj, R = torch.linalg.qr(Hm - shift)
       Hm = R @ Qj + shift
       Vm = Qj.T @ Vm
       q = q @ Qj
       return Vm, Hm, q
 
-    Vm, Hm, q = fori_loop(0, shifts.shape[0], body,
+    Vm, Hm, q = fori_loop(0, shifts.size(0), body,
                                   (Vm, Hm, q))
     fk = Vm[numeig, :] * Hm[numeig, numeig - 1] + fm * q[numeig - 1]
     return Vm, Hm, fk
+
+def _shifted_QR(numeig, device):
+
+    def shifted_QR(Vm, Hm, fm, shifts):
+        # compress arnoldi factorization
+        q = torch.zeros_like(Hm[:,0])
+        q[-1] = 1.0
+
+        shift = torch.eye(Hm.size(0), dtype=Hm.dtype, device = device)
+        for i in range(0, shifts.size(0)):
+            shift.fill_diagonal_(shifts[i])
+            Qj, R = torch.linalg.qr(Hm - shift)
+            Hm = R @ Qj + shift
+            Vm = Qj.T @ Vm
+            q = q @ Qj
+
+        fk = Vm[numeig, :] * Hm[numeig, numeig - 1] + fm * q[numeig - 1]
+        return Vm, Hm, fk
+    
+    return shifted_QR
+
+
 
 def iterative_classical_gram_schmidt(vector, krylov_vectors, precision, iterations = 2):
     """
@@ -65,9 +87,9 @@ def iterative_classical_gram_schmidt(vector, krylov_vectors, precision, iteratio
     overlaps = 0
 
     for _ in range(iterations):
-      ov = tensordot(krylov_vectors.conj(), vec, (i1, i2))
-      vec = vec - tensordot(ov, krylov_vectors, ([0], [0]))
-      overlaps = overlaps + ov
+        ov = tensordot(krylov_vectors.conj(), vec, (i1, i2))
+        vec = vec - tensordot(ov, krylov_vectors, ([0], [0]))
+        overlaps = overlaps + ov
 
     return vec, overlaps
 
@@ -119,7 +141,7 @@ def _lanczos_fact(matvec, args, v0, Vm, alphas, betas, start, num_krylov_vecs, t
             if `False`: iteration terminated without encountering
             an invariant subspace.
     """
-    shape = (v0.size()[0],)
+    shape = (v0.size(0),)
     Z = v0.norm()
     #only normalize if norm > tol, else return zero vector
     v = cond(Z > tol, lambda x: v0 / Z, lambda x: v0 * 0.0, None)
@@ -235,10 +257,10 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
         return state_vectors
 
 
-    shape = (torch.numel(initial_state),)
+    shape = (initial_state.size(0),)
     dtype = initial_state.dtype
 
-    dim = torch.numel(initial_state)
+    dim = initial_state.size(0)
     num_expand = num_krylov_vecs - numeig
     #note: the second part of the cond is for testing purposes
     if num_krylov_vecs <= numeig < dim:
@@ -251,7 +273,7 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
                        f"dim = {dim}")
 
     # initialize arrays
-    Vm = torch.zeros((num_krylov_vecs, torch.numel(initial_state.ravel())), dtype=dtype, device = device)
+    Vm = torch.zeros((num_krylov_vecs, initial_state.size(0)), dtype=dtype, device = device)
     alphas = torch.zeros(num_krylov_vecs, dtype=dtype, device = device)
     betas = torch.zeros(num_krylov_vecs - 1, dtype=dtype, device = device)
 
@@ -282,6 +304,11 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
     else:
         raise ValueError("argument 'which' must be SA")
 
+    shifted_QR = _shifted_QR(numeig, device)
+    #shifted_QR_jit = torch.jit.trace(shifted_QR, (Vm, torch.diag(alphas), Vm[0], alphas))
+    shifted_QR_jit = shifted_QR
+
+
     it = 1  # we already did one lanczos factorization
     def outer_loop(carry):
         alphas, betas, Vm, fm, it, numits, ar_converged, _, _, = carry
@@ -293,7 +320,7 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
         # Note that ||fk|| typically decreases as one iterates the outer loop
         # indicating that iram converges.
         # ||fk|| = \beta_m in reference above
-        Vk, Hk, fk = shifted_QR(Vm, Hm, fm, shifts, numeig, device = device)
+        Vk, Hk, fk = shifted_QR_jit(Vm, Hm, fm, shifts)
         # extract new alphas and betas
         alphas = torch.diag(Hk)
         betas = torch.diag(Hk, -1)
@@ -342,7 +369,12 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
 
     converged = False
     carry = [alphas, betas, Vm, fm, it, numits, ar_converged, converged, norm]
+    #with profiler.profile(activities=[ profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], with_stack = True, profile_memory = False) as prof:
     res = while_loop(cond_fun, outer_loop, carry)
+    #key_avg = prof.key_averages()
+    #print(key_avg.table(sort_by = "self_cuda_time_total", row_limit = 10))
+    #print(key_avg.table(sort_by = "self_cpu_time_total", row_limit = 10))
+
     alphas, betas, Vm = res[0], res[1], res[2]
     numits, ar_converged, converged = res[5], res[6], res[7]
     Hm = torch.diag(alphas) + torch.diag(betas, -1) + torch.diag(
@@ -384,11 +416,12 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
 if __name__ == "__main__":
     from hamiltonian import Sky_phi
     from hamiltonian import ham_total
+    from test_sparse_eigen import CsrLinOp
     from torch import profiler
 
     torch.cuda.set_device("cuda:0")
 
-    L = 16
+    L = 24
     B0 = 0.0
     Bext = 1.0
     dev = device("cuda:0")
@@ -397,14 +430,19 @@ if __name__ == "__main__":
     center  = L / 2 - 0.5
     delta   = 0.5
     scalfac = 1.0
-    B_0     = tensor([B0], dtype = torch.double).cuda()
-    B_ext   = tensor([Bext], dtype = torch.double).cuda()
-    phi_i   = tensor(Sky_phi(L, center, delta, scalfac), dtype = torch.double).cuda()
+
+    dtype = torch.float32
+
+    B_0     = tensor([B0], dtype = dtype).cuda()
+    B_ext   = tensor([Bext], dtype = dtype).cuda()
+    phi_i   = tensor(Sky_phi(L, center, delta, scalfac), dtype = dtype).cuda()
 
     if B_0.dtype == torch.double:
         H = ham_total(L, J_1 , B_0, B_ext, phi_i, prec = 64)
     else:
         H = ham_total(L, J_1 , B_0, B_ext, phi_i, prec = 32)
+
+    H.storage._value = H.storage._value.type(dtype)
 
     H_linop = CsrLinOp(stack([H.storage._row, H.storage._col], dim = 0), H.storage._value, H.size(0))
 
@@ -413,19 +451,44 @@ if __name__ == "__main__":
         return H_linop._mv(v)
         #return H.matmul(v)
     
-    initial_state = torch.tensor([1.0]*(2**L), dtype = torch.double).random_().cuda()
+    initial_state = torch.tensor([1.0]*(2**L), dtype = dtype).random_().cuda()
     initial_state = initial_state / initial_state.norm()
 
-    num_krylov_vecs = 20
+    num_krylov_vecs = 1
     numeig = 3
     which = "SA"
-    tol = 1e-8
+    tol = 1e-4
     maxiter = 1000
-    precision = 1e-10
+    precision = 1
 
-    #with profiler.profile(activities=[ profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], with_stack = True, profile_memory = True) as prof:
-    eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
-    #print(prof.key_averages().table(sort_by = "self_cuda_memory_usage", row_limit = 40))
+    #a = torch.rand((10, 2**L), device = "cuda:0")
+    #b = torch.rand(2**L, device = "cuda:0")
+
+    #from torch import _VF
+#
+    #with profiler.profile(activities=[ profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], with_stack = True, profile_memory = False) as prof:
+    #    
+    #    for i in range(50):
+    #        c = _VF.tensordot(a, b, [1], [0])
+    #key_avg = prof.key_averages()
+    #print(key_avg.table(sort_by = "self_cuda_time_total", row_limit = 10))
+    #print(key_avg.table(sort_by = "self_cpu_time_total", row_limit = 10))
+#
+    #exit()
+
+
+
+    #with profiler.profile(activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], with_stack = True, profile_memory = True) as prof:
+    import time
+
+    start = time.time()
+    with torch.no_grad():
+        eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
+    #key_avg = prof.key_averages()
+    #print(key_avg.table(sort_by = "self_cuda_time_total", row_limit = 10))
+    #print(key_avg.table(sort_by = "self_cpu_time_total", row_limit = 10))
+    torch.cuda.synchronize()
+    print("Runtime: ", time.time() - start)
     
     print(eigval)
     print(num_it)
