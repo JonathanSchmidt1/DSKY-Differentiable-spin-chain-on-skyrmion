@@ -28,15 +28,14 @@ def fori_loop(lower, upper, body_fun, init_val):
         val = body_fun(i, val)
     return val
 
-def shifted_QR(
-      Vm, Hm, fm, shifts, numeig):
+def shifted_QR(Vm, Hm, fm, shifts, numeig, device = "cuda"):
     # compress arnoldi factorization
-    q = torch.tensor((), dtype=Hm.dtype).new_zeros((Hm.size()[0]))
+    q = torch.tensor((), dtype=Hm.dtype, device = device).new_zeros((Hm.size(0)))
     q[-1] = 1.0
 
     def body(i, vals):
       Vm, Hm, q = vals
-      shift = shifts[i] * torch.eye(Hm.size()[0], dtype=Hm.dtype)
+      shift = shifts[i] * torch.eye(Hm.size()[0], dtype=Hm.dtype, device = device)
       Qj, R = torch.linalg.qr(Hm - shift)
       Hm = R @ Qj + shift
       Vm = Qj.T @ Vm
@@ -72,7 +71,7 @@ def iterative_classical_gram_schmidt(vector, krylov_vectors, precision, iteratio
 
     return vec, overlaps
 
-def _lanczos_fact(matvec, args, v0, Vm, alphas, betas, start, num_krylov_vecs, tol, precision):
+def _lanczos_fact(matvec, args, v0, Vm, alphas, betas, start, num_krylov_vecs, tol, precision, device = "cuda"):
     """
     Compute an m-step lanczos factorization of `matvec`, with
     m <=`num_krylov_vecs`. The factorization will
@@ -120,7 +119,7 @@ def _lanczos_fact(matvec, args, v0, Vm, alphas, betas, start, num_krylov_vecs, t
             if `False`: iteration terminated without encountering
             an invariant subspace.
     """
-    shape = (torch.numel(v0),)
+    shape = (v0.size()[0],)
     Z = v0.norm()
     #only normalize if norm > tol, else return zero vector
     v = cond(Z > tol, lambda x: v0 / Z, lambda x: v0 * 0.0, None)
@@ -135,7 +134,8 @@ def _lanczos_fact(matvec, args, v0, Vm, alphas, betas, start, num_krylov_vecs, t
     def body(vals):
         Vm, alphas, betas, previous_vector, _, i = vals
         Av = matvec(previous_vector, *args)
-        Av, overlaps = iterative_classical_gram_schmidt(Av.ravel(), (i >= torch.arange(Vm.size()[0]))[:, None] * Vm, precision)
+        Av, overlaps = iterative_classical_gram_schmidt(Av.ravel(), (i >= torch.arange(Vm.size(0), device = device))[:, None] * Vm, precision)
+        
         alphas[i] = overlaps[i]
         norm = Av.norm()
         Av = Av.reshape(shape)
@@ -170,7 +170,7 @@ def _lanczos_fact(matvec, args, v0, Vm, alphas, betas, start, num_krylov_vecs, t
 
 
 
-def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision):
+def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision, device = "cuda"):
     """
     Implicitly restarted lanczos factorization of `matvec`. The routine
     finds the lowest `numeig` eigenvector-eigenvalue pairs of `matvec`
@@ -222,13 +222,13 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
     def get_vectors(Vm, unitary, inds, numeig):
 
         def body_vector(i, states):
-            dim = unitary.shape[1]
-            n, m = numpy.divmod(i, dim)
-            states = torch.tensor.index_add(states, torch.tensor.index[n, :], Vm[m, :] * unitary[m, inds[n]])
+            dim = unitary.size(1)
+            n, m = np.divmod(i, dim)
+            states[n].index_add_(0, torch.arange(states.size(1), device = device), Vm[m, :] * unitary[m, inds[n]])
             return states
 
-        state_vectors = torch.zeros([numeig, Vm.shape[1]], dtype=Vm.dtype)
-        state_vectors = fori_loop(0, numeig * Vm.shape[0], body_vector, state_vectors)
+        state_vectors = torch.zeros([numeig, Vm.size(1)], dtype=Vm.dtype, device = device)
+        state_vectors = fori_loop(0, numeig * Vm.size(0), body_vector, state_vectors)
         state_norms = torch.linalg.norm(state_vectors, axis=1)
         state_vectors = state_vectors / state_norms[:, None]
 
@@ -251,9 +251,9 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
                        f"dim = {dim}")
 
     # initialize arrays
-    Vm = torch.zeros((num_krylov_vecs, torch.numel(initial_state.ravel())), dtype=dtype)
-    alphas = torch.zeros(num_krylov_vecs, dtype=dtype)
-    betas = torch.zeros(num_krylov_vecs - 1, dtype=dtype)
+    Vm = torch.zeros((num_krylov_vecs, torch.numel(initial_state.ravel())), dtype=dtype, device = device)
+    alphas = torch.zeros(num_krylov_vecs, dtype=dtype, device = device)
+    betas = torch.zeros(num_krylov_vecs - 1, dtype=dtype, device = device)
 
     # perform initial lanczos factorization
     lanczos_fact = _lanczos_fact
@@ -277,7 +277,7 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
     #  raise ValueError(f"which = {which} not implemented")
 
     if which == "SA":
-        sort_fun = lambda eigvals: np.argsort(eigvals)
+        sort_fun = lambda eigvals: torch.argsort(eigvals)
     
     else:
         raise ValueError("argument 'which' must be SA")
@@ -293,15 +293,15 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
         # Note that ||fk|| typically decreases as one iterates the outer loop
         # indicating that iram converges.
         # ||fk|| = \beta_m in reference above
-        Vk, Hk, fk = shifted_QR(Vm, Hm, fm, shifts, numeig)
+        Vk, Hk, fk = shifted_QR(Vm, Hm, fm, shifts, numeig, device = device)
         # extract new alphas and betas
         alphas = torch.diag(Hk)
         betas = torch.diag(Hk, -1)
         alphas[numeig:] = 0.0
-        alphas = alphas[numeig:]
+        #alphas = alphas[numeig:]
 
         betas[numeig-1:] = 0.0
-        betas = betas[numeig-1:]
+        #betas = betas[numeig-1:]
 
         beta_k = torch.linalg.norm(fk)
         Hktest = Hk[:numeig, :numeig]
@@ -314,7 +314,7 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
             # restart
             Vm, alphas, betas, residual, norm, numits, ar_converged = lanczos_fact(
                 matvec, args, torch.reshape(fk, shape), Vk, alphas, betas,
-                numeig, num_krylov_vecs, tol, precision)
+                numeig, num_krylov_vecs, tol, precision, device = device)
             fm = residual.ravel() * norm
             return [Vm, alphas, betas, fm, norm, numits, ar_converged, False]
 
@@ -351,8 +351,8 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
     # return spurious 0 eigenvalues: if lanczos terminated early
     # (after numits < num_krylov_vecs iterations)
     # and numeig > numits, then spurious 0.0 eigenvalues will be returned
-    Hm = (numits > torch.arange(num_krylov_vecs))[:, None] * Hm * (
-        numits > torch.arange(num_krylov_vecs))[None, :]
+    Hm = (numits > torch.arange(num_krylov_vecs, device = device))[:, None] * Hm * (
+        numits > torch.arange(num_krylov_vecs, device = device))[None, :]
 
     eigvals, U = torch.linalg.eigh(Hm)
 
@@ -384,21 +384,22 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
 if __name__ == "__main__":
     from hamiltonian import Sky_phi
     from hamiltonian import ham_total
+    from torch import profiler
 
-    torch.cuda.device("cuda:13")
+    torch.cuda.set_device("cuda:0")
 
-    L = 10
-    B0 = 0.4
-    Bext = 0.0
-    dev = device("cuda:13")
+    L = 16
+    B0 = 0.0
+    Bext = 1.0
+    dev = device("cuda:0")
     J_1 = -1.0
 
     center  = L / 2 - 0.5
     delta   = 0.5
     scalfac = 1.0
-    B_0     = tensor([B0], dtype = torch.double)
-    B_ext   = tensor([Bext], dtype = torch.double)
-    phi_i   = tensor(Sky_phi(L, center, delta, scalfac), dtype = torch.double)
+    B_0     = tensor([B0], dtype = torch.double).cuda()
+    B_ext   = tensor([Bext], dtype = torch.double).cuda()
+    phi_i   = tensor(Sky_phi(L, center, delta, scalfac), dtype = torch.double).cuda()
 
     if B_0.dtype == torch.double:
         H = ham_total(L, J_1 , B_0, B_ext, phi_i, prec = 64)
@@ -412,18 +413,22 @@ if __name__ == "__main__":
         return H_linop._mv(v)
         #return H.matmul(v)
     
-    initial_state = torch.tensor([1.0]*(2**L), dtype = torch.double).random_()
+    initial_state = torch.tensor([1.0]*(2**L), dtype = torch.double).random_().cuda()
     initial_state = initial_state / initial_state.norm()
 
-    num_krylov_vecs = 50
+    num_krylov_vecs = 20
     numeig = 3
     which = "SA"
     tol = 1e-8
-    maxiter = 200
+    maxiter = 1000
     precision = 1e-10
 
-    eigval,eigvec = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
+    #with profiler.profile(activities=[ profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], with_stack = True, profile_memory = True) as prof:
+    eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
+    #print(prof.key_averages().table(sort_by = "self_cuda_memory_usage", row_limit = 40))
     
+    print(eigval)
+    print(num_it)
 
     
 
