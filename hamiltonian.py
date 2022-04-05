@@ -133,7 +133,7 @@ def sparse_ikron(A, L, sites, prec=64):
     return res
 
 
-def tensor_sum(it):
+def tensor_sum(it, inplace = False):
     for i, tensor in enumerate(it):
         if i == 0:
             res = tensor.copy()
@@ -145,7 +145,9 @@ def tensor_sum(it):
 
 
 # product with scalar
-def tensor_elem_mul(A, c, inplace = False):
+def tensor_elem_mul(A, c, dtype = None, inplace = False):
+    if dtype is None:
+        dtype = A.dtype()
 
     if not inplace:
         A_cp = A.copy()
@@ -203,7 +205,7 @@ def ham_j1(L, J1 = 1.0, prec = 64, device='cuda'):
         for i in range(L - 1):
             coo = [i, i + 1]
 
-            yield sparse_ikron(tensor_sum(summands), L, coo)
+            yield sparse_ikron(tensor_sum(summands), L, coo, prec=prec)
 
     ham = tensor_elem_mul(tensor_sum(j1_terms()), J1 / 4)
 
@@ -230,13 +232,19 @@ def ham_mag(L, B0, B_ext, theta, prec=64, device='cuda'):
 
     def ext_terms():
         for i in range(L):
-            yield tensor_elem_mul(sparse_ikron(pauli[2], L, [i], prec), -B_ext / 2)
+            yield tensor_elem_mul(sparse_ikron(pauli[2], L, [i], prec = prec), -B_ext / 2)
     
-
-    def sky_x_terms():
-
-        for i,cphi in enumerate(theta):
-            yield sparse_ikron(tensor_elem_mul(pauli[0], - B0 * torch.sin(cphi) / 2), L, [i], prec = prec)
+    ham = tensor_sum(ext_terms())
+    for i,cphi in enumerate(theta):
+        print(i)
+        spikron = sparse_ikron(tensor_elem_mul(pauli[0], - B0 * torch.sin(cphi) / 2), L, [i], prec = prec)
+        print(spikron.storage._value.element_size() * spikron.storage._value.nelement())
+        #ham = tensor_sum([ham,spikron])
+        ham = add_tensor(ham,spikron)
+        print(ham.storage._value.element_size() * ham.storage._value.nelement())
+        print(torch.cuda.memory_allocated())
+        torch.cuda.empty_cache()
+        print(torch.cuda.memory_reserved())
 
 
     def sky_z_terms():
@@ -244,7 +252,11 @@ def ham_mag(L, B0, B_ext, theta, prec=64, device='cuda'):
         for i,cphi in enumerate(theta):
             yield sparse_ikron(tensor_elem_mul(pauli[2], - B0 * torch.cos(cphi) / 2), L, [i], prec = prec)
     
-    ham = tensor_sum([tensor_sum(ext_terms()), tensor_sum(sky_x_terms()), tensor_sum(sky_z_terms())])
+    #ham = tensor_sum([tensor_sum(ext_terms()),tensor_sum(sky_x_terms()])), tensor_sum(sky_z_terms())]))
+
+#    ham = tensor_sum(ext_terms())
+#    ham = tensor_sum([ham, tensor_sum(sky_x_terms())])
+    ham = tensor_sum([ham, tensor_sum(sky_z_terms())])
 
     return ham
 

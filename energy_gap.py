@@ -8,7 +8,7 @@ from test_sparse_eigen import CsrLinOp
 #import memory_profiler
 
 
-dev    = device("cuda")
+dev    = device("cuda:0")
 
 #@memory_profiler.profile
 def energy_gap(param_values, J_1 = -1.0, L = 16, n_eigs = 3, dtype = float64):#, scalfac = 1.0, delta = 0.5):
@@ -36,7 +36,7 @@ def energy_gap(param_values, J_1 = -1.0, L = 16, n_eigs = 3, dtype = float64):#,
     return np.log((eigvals[1] - eigvals[0]).cpu().detach().numpy() + 1e-6)
 
 
-def energy_gap_2param_test(param_values, J_1 = -1.0, L = 16, n_eigs = 3, dtype = float64):#, scalfac = 1.0, delta = 0.5):
+def energy_gap_2param_test(param_values, J_1 = -1.0, L = 22, n_eigs = 3, dtype = float64):#, scalfac = 1.0, delta = 0.5):
     center  = L / 2 - 0.5
     delta   = 0.5
     scalfac = 1
@@ -48,7 +48,9 @@ def energy_gap_2param_test(param_values, J_1 = -1.0, L = 16, n_eigs = 3, dtype =
         H = ham_total(L, J_1 , B_0, B_ext, phi_i, prec = 64)
     else:
         H = ham_total(L, J_1 , B_0, B_ext, phi_i, prec = 32)
-    H_linop = CsrLinOp(stack([H.storage._row, H.storage._col], dim = 0), H.storage._value, H.size(0))
+
+    H = H.cpu()
+    H_linop = CsrLinOp(stack([H.storage._row, H.storage._col], dim = 0), H.storage._value, H.size(0), device = "cuda:0")
         
     eigvals = linalg.symeig(H_linop, neig = n_eigs, method = "davidson", max_niter = 1000, nguess = None,
                             v_init = "randn", max_addition = None, min_eps = 1e-07, verbose = False,

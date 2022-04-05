@@ -24,10 +24,12 @@ def spadd(indexA, valueA, indexB, valueB, m, n):
     return coalesce(index=index, value=value, m=m, n=n, op='add')
 
 class CsrLinOp(xitorch.LinearOperator):
-    def __init__(self,index, value ,size):
-        super().__init__(shape=(size,size), is_hermitian=True, device=value.device, dtype=value.dtype)
-        self.v = value
-        self.index = index
+    def __init__(self,index, value , size, device = None):
+        if device is None:
+            device = value.device
+        super().__init__(shape=(size,size), is_hermitian=True, device=device, dtype=value.dtype)
+        self.v = value.to(device)
+        self.index = index.to(device)
         self.size = size
     def _mv(self, x):
         if len(x.shape)==1:

@@ -418,13 +418,16 @@ if __name__ == "__main__":
     from hamiltonian import ham_total
     from test_sparse_eigen import CsrLinOp
     from torch import profiler
+    import xitorch
+    import time
+    import sys
 
     torch.cuda.set_device("cuda:0")
 
-    L = 24
+    L = 22
     B0 = 0.0
     Bext = 1.0
-    dev = device("cuda:0")
+    device = device("cuda:0")
     J_1 = -1.0
 
     center  = L / 2 - 0.5
@@ -433,18 +436,18 @@ if __name__ == "__main__":
 
     dtype = torch.float32
 
-    B_0     = tensor([B0], dtype = dtype).cuda()
-    B_ext   = tensor([Bext], dtype = dtype).cuda()
-    phi_i   = tensor(Sky_phi(L, center, delta, scalfac), dtype = dtype).cuda()
+    B_0     = tensor([B0], dtype = dtype, device = device)
+    B_ext   = tensor([Bext], dtype = dtype, device = device)
+    phi_i   = tensor(Sky_phi(L, center, delta, scalfac), dtype = dtype, device = device)
+
 
     if B_0.dtype == torch.double:
         H = ham_total(L, J_1 , B_0, B_ext, phi_i, prec = 64)
     else:
         H = ham_total(L, J_1 , B_0, B_ext, phi_i, prec = 32)
 
-    H.storage._value = H.storage._value.type(dtype)
-
-    H_linop = CsrLinOp(stack([H.storage._row, H.storage._col], dim = 0), H.storage._value, H.size(0))
+    H = H.cpu()
+    H_linop = CsrLinOp(stack([H.storage._row, H.storage._col], dim = 0), H.storage._value, H.size(0), device = "cuda:0")
 
     def matvec(v, dummy):
 
@@ -454,12 +457,12 @@ if __name__ == "__main__":
     initial_state = torch.tensor([1.0]*(2**L), dtype = dtype).random_().cuda()
     initial_state = initial_state / initial_state.norm()
 
-    num_krylov_vecs = 1
+    num_krylov_vecs = 20
     numeig = 3
     which = "SA"
     tol = 1e-4
     maxiter = 1000
-    precision = 1
+    precision = 1e-6
 
     #a = torch.rand((10, 2**L), device = "cuda:0")
     #b = torch.rand(2**L, device = "cuda:0")
@@ -483,7 +486,11 @@ if __name__ == "__main__":
 
     start = time.time()
     with torch.no_grad():
-        eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
+        #eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
+        eigvals = xitorch.linalg.symeig(H_linop, neig = numeig, method = "davidson", max_niter = 1000, nguess = None,
+                            v_init = "randn", max_addition = None, min_eps = 1e-07, verbose = False,
+                            bck_options={'method': 'bicgstab', 'rtol': 1e-05, 'atol': 1e-06, 'eps': 1e-8,
+                                         'verbose': False, 'max_niter': 10000})[0]
     #key_avg = prof.key_averages()
     #print(key_avg.table(sort_by = "self_cuda_time_total", row_limit = 10))
     #print(key_avg.table(sort_by = "self_cpu_time_total", row_limit = 10))
@@ -491,7 +498,7 @@ if __name__ == "__main__":
     print("Runtime: ", time.time() - start)
     
     print(eigval)
-    print(num_it)
+    #print(num_it)
 
     
 
