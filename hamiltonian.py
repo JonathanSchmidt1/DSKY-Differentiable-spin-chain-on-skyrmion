@@ -236,15 +236,17 @@ def ham_mag(L, B0, B_ext, theta, prec=64, device='cuda'):
     
     ham = tensor_sum(ext_terms())
     for i,cphi in enumerate(theta):
-        print(i)
+        #print(i)
         spikron = sparse_ikron(tensor_elem_mul(pauli[0], - B0 * torch.sin(cphi) / 2), L, [i], prec = prec)
-        print(spikron.storage._value.element_size() * spikron.storage._value.nelement())
+        #print(spikron.storage._value.element_size() * spikron.storage._value.nelement())
         #ham = tensor_sum([ham,spikron])
         ham = add_tensor(ham,spikron)
-        print(ham.storage._value.element_size() * ham.storage._value.nelement())
-        print(torch.cuda.memory_allocated())
+        #print(ham.storage._value.element_size() * ham.storage._value.nelement())
+        #print(torch.cuda.memory_allocated())
+        #print(torch.cuda.memory_reserved())
+
         torch.cuda.empty_cache()
-        print(torch.cuda.memory_reserved())
+        #print(torch.cuda.memory_reserved())
 
 
     def sky_z_terms():

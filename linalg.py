@@ -397,22 +397,6 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
     from hamiltonian import Sky_phi
     from hamiltonian import ham_total
@@ -486,11 +470,11 @@ if __name__ == "__main__":
 
     start = time.time()
     with torch.no_grad():
-        #eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
-        eigvals = xitorch.linalg.symeig(H_linop, neig = numeig, method = "davidson", max_niter = 1000, nguess = None,
-                            v_init = "randn", max_addition = None, min_eps = 1e-07, verbose = False,
-                            bck_options={'method': 'bicgstab', 'rtol': 1e-05, 'atol': 1e-06, 'eps': 1e-8,
-                                         'verbose': False, 'max_niter': 10000})[0]
+        eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
+        #eigvals = xitorch.linalg.symeig(H_linop, neig = numeig, method = "davidson", max_niter = 1000, nguess = None,
+        #                    v_init = "randn", max_addition = None, min_eps = 1e-07, verbose = False,
+        #                    bck_options={'method': 'bicgstab', 'rtol': 1e-05, 'atol': 1e-06, 'eps': 1e-8,
+        #                                 'verbose': False, 'max_niter': 10000})[0]
     #key_avg = prof.key_averages()
     #print(key_avg.table(sort_by = "self_cuda_time_total", row_limit = 10))
     #print(key_avg.table(sort_by = "self_cpu_time_total", row_limit = 10))
