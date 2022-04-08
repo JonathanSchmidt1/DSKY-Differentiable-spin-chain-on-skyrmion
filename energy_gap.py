@@ -51,7 +51,7 @@ def energy_gap(param_values, J_1 = -1.0, L = 20, n_eigs = 4, dtype = torch.float
     
     eigvals,_,_ = linalg.implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision, device = dev)
     
-    h5file = h5py.File(path + "eigvals_{}.hdf5".format(os.environ["CUDA_VISIBLE_DEVICES"]), "a")
+    h5file = h5py.File(hdf5_path + "eigvals_{}.hdf5".format(os.environ["CUDA_VISIBLE_DEVICES"]), "a")
     group = h5file.require_group("eigenvalues")
 
     data = [param_values, eigvals.cpu().detach().numpy()]
