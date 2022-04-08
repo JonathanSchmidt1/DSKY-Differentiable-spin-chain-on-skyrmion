@@ -2,7 +2,8 @@ from torch import tensor, stack, float64, float32, profiler, device, tensordot
 from torch import linalg
 import torch
 import numpy as np
-#from xitorch import linalg
+import xitorch
+import typing
 
 #see https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.cond.html
 def cond(pred, true_fun, false_fun, *operands):
@@ -395,9 +396,155 @@ def implicitly_restarted_lanczos_method(matvec, args, initial_state, num_krylov_
     ], numits
 
 
+def restarted_davidson(A: xitorch.LinearOperator, neig: int,
+             mode: str,
+             M: typing.Optional[xitorch.LinearOperator] = None,
+             krylov_dim: int = 20,
+             max_restarts: int = 1000,
+             nguess: typing.Optional[int] = None,
+             v_init: str = "randn",
+             max_addition: typing.Optional[int] = None,
+             min_eps: float = 1e-6,
+             verbose: bool = False,
+             **unused) -> typing.Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Using Davidson method for large sparse matrix eigendecomposition [2]_.
+    Arguments
+    ---------
+    max_niter: int
+        Maximum number of iterations
+    v_init: str
+        Mode of the initial guess (``"randn"``, ``"rand"``, ``"eye"``)
+    max_addition: int or None
+        Maximum number of new guesses to be added to the collected vectors.
+        If None, set to ``neig``.
+    min_eps: float
+        Minimum residual error to be stopped
+    verbose: bool
+        Option to be verbose
+    References
+    ----------
+    .. [2] P. Arbenz, "Lecture Notes on Solving Large Scale Eigenvalue Problems"
+           http://people.inf.ethz.ch/arbenz/ewp/Lnotes/chapter12.pdf
+    """
+    # TODO: optimize for large linear operator and strict min_eps
+    # Ideas:
+    # (1) use better strategy to get the estimate on eigenvalues
+    # (2) use restart strategy
+
+    if nguess is None:
+        nguess = neig
+    if max_addition is None:
+        max_addition = neig
+
+    # get the shape of the transformation
+    na = A.shape[-1]
+    if M is None:
+        bcast_dims = A.shape[:-2]
+    else:
+        bcast_dims = get_bcasted_dims(A.shape[:-2], M.shape[:-2])
+    dtype = A.dtype
+    device = A.device
+
+    prev_eigvals = None
+    prev_eigvalT = None
+    stop_reason = "max_niter"
+    shift_is_eigvalT = False
+    idx = torch.arange(neig).unsqueeze(-1)  # (neig, 1)
+    
+    def inner_loop(init_vecs, max_niter, prev_eigvalT = prev_eigvalT, nguess = nguess):
+        # set up the initial guess
+        V = init_vecs  # (*BAM, na, nguess)
+
+        best_resid: Union[float, torch.Tensor] = float("inf")
+        AV = A.mm(V)
+        for i in range(max_niter):
+            VT = V.transpose(-2, -1)  # (*BAM,nguess,na)
+            # Can be optimized by saving AV from the previous iteration and only
+            # operate AV for the new V. This works because the old V has already
+            # been orthogonalized, so it will stay the same
+            # AV = A.mm(V) # (*BAM,na,nguess)
+            T = torch.matmul(VT, AV)  # (*BAM,nguess,nguess)
+
+            # eigvals are sorted from the lowest
+            # eval: (*BAM, nguess), evec: (*BAM, nguess, nguess)
+            eigvalT, eigvecT = torch.linalg.eigh(T)
+            eigvalT, eigvecT = xitorch._impls.linalg.symeig._take_eigpairs(eigvalT, eigvecT, neig, mode)  # (*BAM, neig) and (*BAM, nguess, neig)
+
+            # calculate the eigenvectors of A
+            eigvecA = torch.matmul(V, eigvecT)  # (*BAM, na, neig)
+
+            # calculate the residual
+            AVs = torch.matmul(AV, eigvecT)  # (*BAM, na, neig)
+            LVs = eigvalT.unsqueeze(-2) * eigvecA  # (*BAM, na, neig)
+            if M is not None:
+                LVs = M.mm(LVs)
+            resid = AVs - LVs  # (*BAM, na, neig)
+
+            # print information and check convergence
+            max_resid = resid.abs().max()
+            if prev_eigvalT is not None:
+                deigval = eigvalT - prev_eigvalT
+                max_deigval = deigval.abs().max()
+                if verbose:
+                    print("Iter %3d (guess size: %d): resid: %.3e, devals: %.3e" %
+                          (i + 1, nguess, max_resid, max_deigval))  # type:ignore
+
+            if max_resid < best_resid:
+                best_resid = max_resid
+                best_eigvals = eigvalT
+                best_eigvecs = eigvecA
+            if max_resid < min_eps:
+                break
+            if AV.shape[-1] == AV.shape[-2]:
+                break
+            prev_eigvalT = eigvalT
+
+            # apply the preconditioner
+            t = -resid  # (*BAM, na, neig)
+
+            # orthogonalize t with the rest of the V
+            t = xitorch._impls.linalg.symeig.to_fortran_order(t)
+            Vnew = torch.cat((V, t), dim=-1)
+            if Vnew.shape[-1] > Vnew.shape[-2]:
+                Vnew = Vnew[..., :Vnew.shape[-2]]
+            nadd = Vnew.shape[-1] - V.shape[-1]
+            nguess = nguess + nadd
+            if M is not None:
+                MV_ = M.mm(Vnew)
+                V, R = xitorch._impls.linalg.symeig.tallqr(Vnew, MV=MV_)
+            else:
+                V, R = xitorch._impls.linalg.symeig.tallqr(Vnew)
+            AVnew = A.mm(V[..., -nadd:])  # (*BAM,na,nadd)
+            AVnew = xitorch._impls.linalg.symeig.to_fortran_order(AVnew)
+            AV = torch.cat((AV, AVnew), dim=-1)
+        
+        return best_eigvals, best_eigvecs, max_resid
+    
+    # set up the initial guess
+    eigvecs = xitorch._impls.linalg.symeig._set_initial_v(v_init.lower(), dtype, device,
+                       bcast_dims, na, nguess,
+                       M=M)  # (*BAM, na, nguess)
+
+    restarts = 0
+    res = 1.0
+    while(res >= min_eps and restarts <= max_restarts):
+        eigvals, eigvecs, res = inner_loop(eigvecs, krylov_dim)
+        restarts += 1
+
+    return eigvals, eigvecs
+
+
+
+
+
 
 
 if __name__ == "__main__":
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+    from bipartite_entropy import calculate_entropies
     from hamiltonian import Sky_phi
     from hamiltonian import ham_total
     from test_sparse_eigen import CsrLinOp
@@ -405,12 +552,13 @@ if __name__ == "__main__":
     import xitorch
     import time
     import sys
+    
 
     torch.cuda.set_device("cuda:0")
 
-    L = 22
-    B0 = 0.0
-    Bext = 1.0
+    L = 20
+    B0 = 0.4
+    Bext = -0.08
     device = device("cuda:0")
     J_1 = -1.0
 
@@ -418,7 +566,7 @@ if __name__ == "__main__":
     delta   = 0.5
     scalfac = 1.0
 
-    dtype = torch.float32
+    dtype = torch.float64
 
     B_0     = tensor([B0], dtype = dtype, device = device)
     B_ext   = tensor([Bext], dtype = dtype, device = device)
@@ -444,9 +592,9 @@ if __name__ == "__main__":
     num_krylov_vecs = 20
     numeig = 3
     which = "SA"
-    tol = 1e-4
+    tol = 1e-6
     maxiter = 1000
-    precision = 1e-6
+    precision = 1e-8
 
     #a = torch.rand((10, 2**L), device = "cuda:0")
     #b = torch.rand(2**L, device = "cuda:0")
@@ -471,17 +619,18 @@ if __name__ == "__main__":
     start = time.time()
     with torch.no_grad():
         eigval,eigvec,num_it = implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision)
-        #eigvals = xitorch.linalg.symeig(H_linop, neig = numeig, method = "davidson", max_niter = 1000, nguess = None,
+        #eigval, eigvec = restarted_davidson(H_linop, neig = numeig, mode = "SA", krylov_dim = 20, max_restarts = 1000, nguess = None,
         #                    v_init = "randn", max_addition = None, min_eps = 1e-07, verbose = False,
         #                    bck_options={'method': 'bicgstab', 'rtol': 1e-05, 'atol': 1e-06, 'eps': 1e-8,
-        #                                 'verbose': False, 'max_niter': 10000})[0]
+        #                                 'verbose': False, 'max_niter': 10000})
     #key_avg = prof.key_averages()
     #print(key_avg.table(sort_by = "self_cuda_time_total", row_limit = 10))
     #print(key_avg.table(sort_by = "self_cpu_time_total", row_limit = 10))
     torch.cuda.synchronize()
     print("Runtime: ", time.time() - start)
-    
     print(eigval)
+    bipent = calculate_entropies(eigvec[0], L, [2]*L, device = device)
+    print(bipent)
     #print(num_it)
 
     

@@ -7,12 +7,13 @@ from hamiltonian import Sky_phi, ham_total
 import linalg
 import xitorch
 from test_sparse_eigen import CsrLinOp
+import pathlib
 
 
 dev = device("cuda:0")
 
-def energy_gap(param_values, J_1 = -1.0, L = 20, n_eigs = 4, dtype = torch.float64):
-    PID = os.getpid()
+def energy_gap(param_values, J_1 = -1.0, L = 20, n_eigs = 4, dtype = torch.float32, hdf5_path = "data/sweep/"):
+    pathlib.Path(hdf5_path).mkdir(parents=True, exist_ok=True)
 
     center  = L / 2 - 0.5
     delta   = param_values[2]
@@ -28,6 +29,7 @@ def energy_gap(param_values, J_1 = -1.0, L = 20, n_eigs = 4, dtype = torch.float
 
     H = H.cpu()
     H_linop = CsrLinOp(stack([H.storage._row, H.storage._col], dim = 0), H.storage._value, H.size(0), device = "cuda:0")
+
     torch.cuda.empty_cache()
     #eigvals = linalg.symeig(H_linop, neig = n_eigs, method = "davidson", max_niter = 1000, nguess = None,
     #                        v_init = "randn", max_addition = None, min_eps = 1e-07, verbose = False,
@@ -41,16 +43,15 @@ def energy_gap(param_values, J_1 = -1.0, L = 20, n_eigs = 4, dtype = torch.float
     initial_state = initial_state / initial_state.norm()
 
     num_krylov_vecs = 20
-    numeig = 4
+    numeig = n_eigs
     which = "SA"
     tol = 1e-4
     maxiter = 1000
     precision = 1e-6
     
     eigvals,_,_ = linalg.implicitly_restarted_lanczos_method(matvec, None, initial_state, num_krylov_vecs, numeig, which, tol, maxiter, precision, device = dev)
-
-
-    h5file = h5py.File("eigvals_{}.hdf5".format(os.environ["CUDA_VISIBLE_DEVICES"]), "a")
+    
+    h5file = h5py.File(path + "eigvals_{}.hdf5".format(os.environ["CUDA_VISIBLE_DEVICES"]), "a")
     group = h5file.require_group("eigenvalues")
 
     data = [param_values, eigvals.cpu().detach().numpy()]

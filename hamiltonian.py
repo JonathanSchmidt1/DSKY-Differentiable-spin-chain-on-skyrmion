@@ -280,7 +280,7 @@ def Sky_phi(L, q, delta, scalfac):
         elif exponent > 32:
             out = np.sign(x-q)*np.pi
         else:
-            out = np.sign(x-q) * 2 * np.arctan(exponent)
+            out = np.sign(x-q) * 2 * np.arctan(np.exp(exponent))
         return out
 
     return [theta(i, q, delta, scalfac) for i in range(L)]
